@@ -429,6 +429,19 @@ app.get("/api/files/download", async (c) => {
   const key = c.req.query("key");
   if (!key) return c.json({ error: "Missing key" }, 400);
 
+  // Support token in query string for direct downloads
+  if (!c.get("user")) {
+    const qToken = c.req.query("token");
+    if (qToken) {
+      const username = await verifyToken(c.env, qToken);
+      if (username) {
+        const u = await getUser(c.env.KV, username);
+        if (u) c.set("user", u);
+      }
+    }
+  }
+
+  const user = c.get("user");
   if (!user) {
     if (!isGuestAllowed(config, key)) return c.json({ error: "Unauthorized" }, 401);
   } else if (user.role !== "admin" && !user.permissions.download) {
@@ -453,9 +466,22 @@ app.get("/api/files/preview", async (c) => {
   const key = c.req.query("key");
   if (!key) return c.json({ error: "Missing key" }, 400);
 
-  if (!user) {
+  // Support token in query string for preview
+  if (!c.get("user")) {
+    const qToken = c.req.query("token");
+    if (qToken) {
+      const username = await verifyToken(c.env, qToken);
+      if (username) {
+        const u = await getUser(c.env.KV, username);
+        if (u) c.set("user", u);
+      }
+    }
+  }
+
+  const userP = c.get("user");
+  if (!userP) {
     if (!isGuestAllowed(config, key)) return c.json({ error: "Unauthorized" }, 401);
-  } else if (user.role !== "admin" && !user.permissions.preview) {
+  } else if (userP.role !== "admin" && !userP.permissions.preview) {
     return c.json({ error: "No permission" }, 403);
   }
 

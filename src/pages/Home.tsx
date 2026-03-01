@@ -144,13 +144,19 @@ export default function HomePage() {
     );
   }
 
-  if (initialized === false) {
-    navigate("/setup");
-    return null;
-  }
+  useEffect(() => {
+    if (!authLoading && initialized === false) {
+      navigate("/setup", { replace: true });
+    }
+  }, [authLoading, initialized, navigate]);
 
-  if (!user && !guestEnabled) {
-    navigate("/login");
+  useEffect(() => {
+    if (!authLoading && initialized && !user && !guestEnabled) {
+      navigate("/login", { replace: true });
+    }
+  }, [authLoading, initialized, user, guestEnabled, navigate]);
+
+  if (initialized === false || (!user && !guestEnabled)) {
     return null;
   }
 

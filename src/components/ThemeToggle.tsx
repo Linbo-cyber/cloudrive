@@ -16,10 +16,12 @@ function applyTheme(theme: Theme) {
   document.documentElement.classList.toggle("dark", resolved === "dark");
 }
 
+// Apply immediately on load to prevent flash
+const savedTheme = (localStorage.getItem("theme") as Theme) || "system";
+applyTheme(savedTheme);
+
 export function useTheme() {
-  const [theme, setThemeState] = useState<Theme>(() => {
-    return (localStorage.getItem("theme") as Theme) || "system";
-  });
+  const [theme, setThemeState] = useState<Theme>(savedTheme);
 
   useEffect(() => {
     applyTheme(theme);

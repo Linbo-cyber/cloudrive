@@ -61,8 +61,10 @@ export default function FileList({
   };
 
   const handleDownload = (file: FileItem) => {
+    const token = localStorage.getItem("token");
+    const url = api.getDownloadUrl(file.key) + (token ? `&token=${encodeURIComponent(token)}` : "");
     const a = document.createElement("a");
-    a.href = api.getDownloadUrl(file.key);
+    a.href = url;
     a.download = file.name;
     a.click();
   };

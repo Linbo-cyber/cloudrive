@@ -22,14 +22,18 @@ export default function FileUpload({ currentPath, onComplete }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
 
   const addFiles = (fileList: FileList | File[]) => {
-    const newTasks: UploadTask[] = Array.from(fileList).map((file) => ({
-      file,
-      progress: 0,
-      status: "pending" as const,
-    }));
-    setTasks((prev) => [...prev, ...newTasks]);
-    newTasks.forEach((task, i) => {
-      uploadFile(task, tasks.length + i);
+    const arr = Array.from(fileList);
+    setTasks((prev) => {
+      const startIndex = prev.length;
+      const newTasks: UploadTask[] = arr.map((file) => ({
+        file,
+        progress: 0,
+        status: "pending" as const,
+      }));
+      arr.forEach((_, i) => {
+        uploadFile(newTasks[i], startIndex + i);
+      });
+      return [...prev, ...newTasks];
     });
   };
 

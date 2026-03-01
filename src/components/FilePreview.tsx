@@ -22,7 +22,10 @@ export default function FilePreview({ file, open, onClose }: Props) {
     const type = getPreviewType(file.name);
     if (type === "text") {
       setLoading(true);
-      fetch(api.getPreviewUrl(file.key))
+      const token = localStorage.getItem("token");
+      const headers: Record<string, string> = {};
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+      fetch(api.getPreviewUrl(file.key), { headers })
         .then((r) => r.text())
         .then((t) => setTextContent(t))
         .catch(() => setTextContent("加载失败"))
