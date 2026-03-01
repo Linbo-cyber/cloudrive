@@ -17,7 +17,7 @@ import {
   Table, TableHeader, TableBody, TableRow, TableHead, TableCell,
 } from "@/components/ui/table";
 import {
-  ArrowLeftIcon, PlusIcon, TrashIcon, PencilIcon, ShieldIcon, UserIcon, UsersIcon,
+  ArrowLeftIcon, PlusIcon, TrashIcon, PencilIcon, UserIcon, UsersIcon, FolderIcon,
 } from "lucide-react";
 
 const ALL_PERMS: { key: keyof Permissions; label: string }[] = [
@@ -41,6 +41,7 @@ export default function AdminPage() {
   const navigate = useNavigate();
   const [users, setUsers] = useState<User[]>([]);
   const [guestEnabled, setGuestEnabled] = useState(true);
+  const [guestPath, setGuestPath] = useState("");
   const [showCreate, setShowCreate] = useState(false);
   const [editUser, setEditUser] = useState<User | null>(null);
   const [newUsername, setNewUsername] = useState("");
@@ -60,6 +61,7 @@ export default function AdminPage() {
       const [u, g] = await Promise.all([api.listUsers(), api.getGuestConfig()]);
       setUsers(u.users);
       setGuestEnabled(g.enabled);
+      setGuestPath(g.path || "");
     } catch {}
   };
 
@@ -109,8 +111,14 @@ export default function AdminPage() {
 
   const handleGuestToggle = async (enabled: boolean) => {
     try {
-      await api.setGuestConfig(enabled);
+      await api.setGuestConfig(enabled, guestPath);
       setGuestEnabled(enabled);
+    } catch {}
+  };
+
+  const handleGuestPathSave = async () => {
+    try {
+      await api.setGuestConfig(guestEnabled, guestPath);
     } catch {}
   };
 
@@ -136,11 +144,30 @@ export default function AdminPage() {
             </CardTitle>
             <CardDescription>访客无需登录即可浏览文件，仅有预览和下载权限</CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="flex flex-col gap-4">
             <div className="flex items-center justify-between">
               <Label>启用访客访问</Label>
               <Switch checked={guestEnabled} onCheckedChange={handleGuestToggle} />
             </div>
+            {guestEnabled && (
+              <div className="flex flex-col gap-2">
+                <Label className="flex items-center gap-1.5">
+                  <FolderIcon className="size-3.5" /> 访客可访问路径
+                </Label>
+                <div className="flex gap-2">
+                  <Input
+                    value={guestPath}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setGuestPath(e.target.value)}
+                    placeholder="留空表示可访问全部文件"
+                    size="sm"
+                  />
+                  <Button size="sm" variant="outline" onClick={handleGuestPathSave}>保存</Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  例如填 <code className="rounded bg-muted px-1">public/</code> 则访客只能浏览 public 文件夹下的内容
+                </p>
+              </div>
+            )}
           </CardContent>
         </Card>
 

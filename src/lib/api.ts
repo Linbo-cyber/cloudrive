@@ -28,13 +28,18 @@ async function request<T>(path: string, opts: ApiOptions = {}): Promise<T> {
   });
 
   if (res.status === 401) {
-    localStorage.removeItem("token");
-    localStorage.removeItem("user");
-    window.location.href = "/login";
+    const currentPath = window.location.pathname;
+    if (currentPath !== "/login" && currentPath !== "/setup") {
+      localStorage.removeItem("token");
+      localStorage.removeItem("user");
+      window.location.href = "/login";
+    }
     throw new Error("Unauthorized");
   }
 
-  const data = await res.json();
+  const text = await res.text();
+  if (!text) throw new Error("Empty response");
+  const data = JSON.parse(text);
   if (!res.ok) throw new Error(data.error || "Request failed");
   return data as T;
 }
@@ -69,6 +74,7 @@ export interface Permissions {
 export interface SystemConfig {
   initialized: boolean;
   guestEnabled: boolean;
+  guestPath: string;
 }
 
 export const api = {
@@ -144,7 +150,10 @@ export const api = {
     request<{ user: User }>(`/admin/users/${username}`, { method: "PUT", body: data }),
   deleteUser: (username: string) =>
     request<{ ok: boolean }>(`/admin/users/${username}`, { method: "DELETE" }),
-  getGuestConfig: () => request<{ enabled: boolean }>("/admin/guest"),
-  setGuestConfig: (enabled: boolean) =>
-    request<{ ok: boolean }>("/admin/guest", { method: "PUT", body: { enabled } }),
+  getGuestConfig: () => request<{ enabled: boolean; path: string }>("/admin/guest"),
+  setGuestConfig: (enabled: boolean, path?: string) =>
+    request<{ ok: boolean }>("/admin/guest", {
+      method: "PUT",
+      body: { enabled, ...(typeof path === "string" ? { path } : {}) },
+    }),
 };

@@ -18,6 +18,7 @@ import {
   SettingsIcon, ChevronRightIcon, HomeIcon, RefreshCwIcon, SearchIcon, XIcon,
   MoveIcon, CopyIcon,
 } from "lucide-react";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 export default function HomePage() {
   const { user, can, logout, guestEnabled, initialized, loading: authLoading } = useAuth();
@@ -156,13 +157,14 @@ export default function HomePage() {
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
-      <header className="sticky top-0 z-40 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+      <header className="sticky top-0 z-40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-4">
           <div className="flex items-center gap-2">
             <CloudIcon className="size-5 text-primary" />
             <span className="font-semibold text-lg">ClouDrive</span>
           </div>
           <div className="flex items-center gap-2">
+            <ThemeToggle />
             {user ? (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -215,17 +217,17 @@ export default function HomePage() {
           </nav>
 
           <div className="flex items-center gap-2 shrink-0">
-            <div className="relative">
-              <SearchIcon className="absolute left-2.5 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+            <div className="relative flex items-center">
+              <SearchIcon className="pointer-events-none absolute left-2.5 z-10 size-4 text-muted-foreground" />
               <Input
                 size="sm"
-                className="pl-8 w-48"
+                className="w-48 [&_[data-slot=input]]:pl-7"
                 placeholder="搜索文件..."
                 value={search}
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearch(e.target.value)}
               />
               {search && (
-                <button className="absolute right-2 top-1/2 -translate-y-1/2" onClick={() => setSearch("")}>
+                <button className="absolute right-2 z-10" onClick={() => setSearch("")}>
                   <XIcon className="size-3.5 text-muted-foreground" />
                 </button>
               )}

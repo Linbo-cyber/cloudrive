@@ -30,6 +30,7 @@ interface UserRecord {
 interface SystemConfig {
   initialized: boolean;
   guestEnabled: boolean;
+  guestPath: string;
 }
 
 const app = new Hono<{ Bindings: Env; Variables: { user?: UserRecord } }>();
@@ -70,8 +71,9 @@ async function verifyToken(env: Env, token: string): Promise<string | null> {
 
 async function getConfig(kv: KVNamespace): Promise<SystemConfig> {
   const raw = await kv.get("system:config");
-  if (!raw) return { initialized: false, guestEnabled: true };
-  return JSON.parse(raw);
+  if (!raw) return { initialized: false, guestEnabled: true, guestPath: "" };
+  const parsed = JSON.parse(raw);
+  return { guestPath: "", ...parsed };
 }
 
 async function setConfig(kv: KVNamespace, config: SystemConfig) {
@@ -85,7 +87,6 @@ async function getUser(kv: KVNamespace, username: string): Promise<UserRecord | 
 
 async function setUser(kv: KVNamespace, user: UserRecord) {
   await kv.put(`user:${user.username}`, JSON.stringify(user));
-  // maintain user list
   const list = await getUserList(kv);
   if (!list.includes(user.username)) {
     list.push(user.username);
@@ -102,6 +103,13 @@ async function deleteUserRecord(kv: KVNamespace, username: string) {
 async function getUserList(kv: KVNamespace): Promise<string[]> {
   const raw = await kv.get("system:users");
   return raw ? JSON.parse(raw) : [];
+}
+
+function isGuestAllowed(config: SystemConfig, prefix: string): boolean {
+  if (!config.guestEnabled) return false;
+  if (!config.guestPath) return true; // no restriction
+  const allowed = config.guestPath.endsWith("/") ? config.guestPath : config.guestPath + "/";
+  return prefix === "" || prefix === allowed || prefix.startsWith(allowed);
 }
 
 // ── Auth middleware ──
@@ -137,7 +145,11 @@ app.use("/api/*", authMiddleware);
 
 app.get("/api/auth/status", async (c) => {
   const config = await getConfig(c.env.KV);
-  return c.json({ initialized: config.initialized, guestEnabled: config.guestEnabled });
+  return c.json({
+    initialized: config.initialized,
+    guestEnabled: config.guestEnabled,
+    guestPath: config.guestPath,
+  });
 });
 
 app.post("/api/auth/setup", async (c) => {
@@ -160,7 +172,7 @@ app.post("/api/auth/setup", async (c) => {
   };
 
   await setUser(c.env.KV, user);
-  await setConfig(c.env.KV, { initialized: true, guestEnabled: true });
+  await setConfig(c.env.KV, { initialized: true, guestEnabled: true, guestPath: "" });
 
   const token = await createToken(c.env, username);
   const { passwordHash: _, ...safeUser } = user;
@@ -197,14 +209,15 @@ app.get("/api/auth/me", async (c) => {
 app.get("/api/files", async (c) => {
   const config = await getConfig(c.env.KV);
   const user = c.get("user");
-  if (!user && !config.guestEnabled) return c.json({ error: "Unauthorized" }, 401);
-
   const prefix = c.req.query("prefix") || "";
-  const listed = await c.env.R2.list({ prefix, delimiter: "/" });
 
+  if (!user) {
+    if (!isGuestAllowed(config, prefix)) return c.json({ error: "Unauthorized" }, 401);
+  }
+
+  const listed = await c.env.R2.list({ prefix, delimiter: "/" });
   const files: any[] = [];
 
-  // Folders (common prefixes)
   for (const p of listed.delimitedPrefixes) {
     const name = p.slice(prefix.length).replace(/\/$/, "");
     if (name) {
@@ -212,10 +225,9 @@ app.get("/api/files", async (c) => {
     }
   }
 
-  // Files
   for (const obj of listed.objects) {
     const name = obj.key.slice(prefix.length);
-    if (!name || name.endsWith("/")) continue; // skip folder markers
+    if (!name || name.endsWith("/") || name.endsWith(".cloudrive-folder")) continue;
     files.push({
       key: obj.key,
       name,
@@ -226,8 +238,7 @@ app.get("/api/files", async (c) => {
     });
   }
 
-  // Sort: folders first, then by name
-  files.sort((a, b) => {
+  files.sort((a: any, b: any) => {
     if (a.isFolder !== b.isFolder) return a.isFolder ? -1 : 1;
     return a.name.localeCompare(b.name);
   });
@@ -280,12 +291,11 @@ app.post("/api/files/delete", async (c) => {
   if (!key) return c.json({ error: "Missing key" }, 400);
 
   if (key.endsWith("/")) {
-    // Delete folder: list all objects with this prefix and delete them
     let cursor: string | undefined;
     do {
       const listed = await c.env.R2.list({ prefix: key, cursor });
       if (listed.objects.length > 0) {
-        await c.env.R2.delete(listed.objects.map((o) => o.key));
+        await c.env.R2.delete(listed.objects.map((o: any) => o.key));
       }
       cursor = listed.truncated ? listed.cursor : undefined;
     } while (cursor);
@@ -311,7 +321,7 @@ app.post("/api/files/delete-batch", async (c) => {
       do {
         const listed = await c.env.R2.list({ prefix: key, cursor });
         if (listed.objects.length > 0) {
-          await c.env.R2.delete(listed.objects.map((o) => o.key));
+          await c.env.R2.delete(listed.objects.map((o: any) => o.key));
         }
         cursor = listed.truncated ? listed.cursor : undefined;
       } while (cursor);
@@ -333,7 +343,6 @@ app.post("/api/files/rename", async (c) => {
   if (!oldKey || !newKey) return c.json({ error: "Missing keys" }, 400);
 
   if (oldKey.endsWith("/")) {
-    // Rename folder: copy all objects
     let cursor: string | undefined;
     do {
       const listed = await c.env.R2.list({ prefix: oldKey, cursor });
@@ -341,9 +350,7 @@ app.post("/api/files/rename", async (c) => {
         const newObjKey = newKey + obj.key.slice(oldKey.length);
         const data = await c.env.R2.get(obj.key);
         if (data) {
-          await c.env.R2.put(newObjKey, data.body, {
-            httpMetadata: data.httpMetadata,
-          });
+          await c.env.R2.put(newObjKey, data.body, { httpMetadata: data.httpMetadata });
           await c.env.R2.delete(obj.key);
         }
       }
@@ -419,13 +426,14 @@ app.post("/api/files/copy", async (c) => {
 app.get("/api/files/download", async (c) => {
   const config = await getConfig(c.env.KV);
   const user = c.get("user");
-  if (!user && !config.guestEnabled) return c.json({ error: "Unauthorized" }, 401);
-  if (user && user.role !== "admin" && !user.permissions.download) {
-    return c.json({ error: "No permission" }, 403);
-  }
-
   const key = c.req.query("key");
   if (!key) return c.json({ error: "Missing key" }, 400);
+
+  if (!user) {
+    if (!isGuestAllowed(config, key)) return c.json({ error: "Unauthorized" }, 401);
+  } else if (user.role !== "admin" && !user.permissions.download) {
+    return c.json({ error: "No permission" }, 403);
+  }
 
   const obj = await c.env.R2.get(key);
   if (!obj) return c.json({ error: "Not found" }, 404);
@@ -442,13 +450,14 @@ app.get("/api/files/download", async (c) => {
 app.get("/api/files/preview", async (c) => {
   const config = await getConfig(c.env.KV);
   const user = c.get("user");
-  if (!user && !config.guestEnabled) return c.json({ error: "Unauthorized" }, 401);
-  if (user && user.role !== "admin" && !user.permissions.preview) {
-    return c.json({ error: "No permission" }, 403);
-  }
-
   const key = c.req.query("key");
   if (!key) return c.json({ error: "Missing key" }, 400);
+
+  if (!user) {
+    if (!isGuestAllowed(config, key)) return c.json({ error: "Unauthorized" }, 401);
+  } else if (user.role !== "admin" && !user.permissions.preview) {
+    return c.json({ error: "No permission" }, 403);
+  }
 
   const obj = await c.env.R2.get(key);
   if (!obj) return c.json({ error: "Not found" }, 404);
@@ -540,18 +549,21 @@ app.delete("/api/admin/users/:username", async (c) => {
 app.get("/api/admin/guest", async (c) => {
   try { requireAdmin(c); } catch { return c.json({ error: "Forbidden" }, 403); }
   const config = await getConfig(c.env.KV);
-  return c.json({ enabled: config.guestEnabled });
+  return c.json({ enabled: config.guestEnabled, path: config.guestPath });
 });
 
 app.put("/api/admin/guest", async (c) => {
   try { requireAdmin(c); } catch { return c.json({ error: "Forbidden" }, 403); }
-  const { enabled } = await c.req.json();
+  const { enabled, path } = await c.req.json();
   const config = await getConfig(c.env.KV);
-  config.guestEnabled = !!enabled;
+  if (typeof enabled === "boolean") config.guestEnabled = enabled;
+  if (typeof path === "string") config.guestPath = path;
   await setConfig(c.env.KV, config);
   return c.json({ ok: true });
 });
 
-// ── SPA fallback handled by Pages ──
+// ── Export for Cloudflare Pages Functions ──
 
-export default app;
+export function onRequest(context: { request: Request; env: Env; params: { path: string[] } }) {
+  return app.fetch(context.request, context.env);
+}
